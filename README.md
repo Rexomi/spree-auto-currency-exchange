@@ -1,0 +1,1 @@
+# spree-auto-currency-exchange
