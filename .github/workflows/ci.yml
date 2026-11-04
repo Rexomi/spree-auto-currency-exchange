@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Ruby ${{ matrix.ruby }} / Spree ${{ matrix.spree }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ruby: "3.2"
+            spree: "~> 5.6.0"
+            rails: "~> 7.2.0"
+          - ruby: "3.3"
+            spree: "~> 5.6.0"
+            rails: "~> 8.1.0"
+          - ruby: "3.4"
+            spree: "~> 5.6.0"
+            rails: "~> 8.1.0"
+          - ruby: "3.2"
+            spree: "~> 6.0.0"
+            rails: "~> 8.1.0"
+          - ruby: "3.4"
+            spree: "~> 6.0.0"
+            rails: "~> 8.1.0"
+    env:
+      SPREE_CORE_VERSION: ${{ matrix.spree }}
+      RAILS_VERSION: ${{ matrix.rails }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - run: bundle exec rake spec
+      - run: gem build spree_auto_currency_exchange.gemspec
+      - run: ruby -e 'spec = Gem::Specification.load("spree_auto_currency_exchange.gemspec"); abort "missing gemspec" unless spec; abort "Spree dependency missing" unless spec.dependencies.any? { |dependency| dependency.name == "spree_core" }'
