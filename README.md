@@ -12,7 +12,7 @@ The current compatibility target is:
 | --- | --- |
 | Spree Core | 5.6.x and 6.0.x |
 | Rails | 7.2.x through 8.1.x, as required by the selected Spree version |
-| Ruby | 3.2 or newer |
+| Ruby | 3.2+ with Spree 5.6.x; 3.3+ with Spree 6.0.x |
 
 CI runs against Spree 5.6 and 6.0. Spree 6 quantity-break prices are supported by updating only the ordinary `min_quantity: 1` price row. This repository was supplied without a Spree application or Ruby installation, so no store-specific Spree version could be detected here.
 
