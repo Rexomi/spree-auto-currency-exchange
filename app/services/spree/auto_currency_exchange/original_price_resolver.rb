@@ -12,19 +12,18 @@ module Spree
       # later addition of another price cannot silently change the product's
       # source currency.
       def call
-        prices = available_base_prices
-        return if prices.empty?
-
         original = if OriginalCurrency.table_exists?
                      OriginalCurrency.find_by(store_id: @store.id, variant_id: @variant.id)
                    end
         if original
-          price = prices.find { |candidate| candidate.currency.to_s.upcase == original.currency }
+          price = base_price_for(original.currency)
           return [price, original.currency] if price
           return
         end
 
-        selected = self.class.select_source_price(@store.default_currency, prices)
+        default_currency = @store.default_currency.to_s.upcase
+        selected = base_price_for(default_currency)
+        selected ||= self.class.select_source_price(default_currency, available_base_prices)
         return unless selected
 
         currency = selected.currency.to_s.upcase
@@ -43,16 +42,32 @@ module Spree
 
       private
 
+      # A preloaded prices association can be scoped by the API/request to only
+      # the selected market currency. Use it when it contains the requested
+      # source price, but query the complete base-price relation if it does not.
+      def base_price_for(currency)
+        association = @variant.prices
+        if association.respond_to?(:loaded?) && association.loaded?
+          loaded_price = source_prices(association.to_a).find do |price|
+            price.currency.to_s.upcase == currency.to_s.upcase
+          end
+          return loaded_price if loaded_price
+        end
+
+        scope = association.base_prices.where.not(amount: nil)
+        scope = scope.where(min_quantity: 1) if quantity_breaks_supported?
+        source_prices([scope.find_by(currency: currency.to_s.upcase)]).first
+      end
+
       def available_base_prices
         association = @variant.prices
-        rows = if association.respond_to?(:loaded?) && association.loaded?
-                 association.to_a
-               else
-                 scope = association.base_prices.where.not(amount: nil)
-                 scope = scope.where(min_quantity: 1) if quantity_breaks_supported?
-                 scope.order(:created_at, :id).to_a
-               end
-        rows = rows.select do |price|
+        scope = association.base_prices.where.not(amount: nil)
+        scope = scope.where(min_quantity: 1) if quantity_breaks_supported?
+        source_prices(scope.order(:created_at, :id).to_a)
+      end
+
+      def source_prices(rows)
+        rows = rows.compact.select do |price|
           price.price_list_id.nil? && price.amount.present? &&
             (!quantity_breaks_supported? || price.min_quantity.to_i == 1)
         end

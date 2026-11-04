@@ -9,6 +9,7 @@ Spree.base_class = "ActiveRecord::Base"
 require_relative "../app/models/spree/auto_currency_exchange/price_override"
 require_relative "../app/models/spree/auto_currency_exchange/converted_price"
 require_relative "../app/models/spree/auto_currency_exchange/rate"
+require_relative "../app/models/spree/auto_currency_exchange/original_currency"
 Spree.base_class = original_spree_base_class
 
 RSpec.describe Spree::AutoCurrencyExchange::DynamicPrice do
@@ -28,6 +29,7 @@ RSpec.describe Spree::AutoCurrencyExchange::DynamicPrice do
   before do
     allow(Spree::AutoCurrencyExchange::PriceOverride).to receive(:table_exists?).and_return(false)
     allow(Spree::AutoCurrencyExchange::ConvertedPrice).to receive(:table_exists?).and_return(false)
+    allow(Spree::AutoCurrencyExchange::OriginalCurrency).to receive(:table_exists?).and_return(false)
   end
 
   it "converts a preserved INR source price into the selected market currency from saved rates" do
@@ -100,6 +102,33 @@ RSpec.describe Spree::AutoCurrencyExchange::DynamicPrice do
     ).resolve
 
     expect(converted.amount).to eq(BigDecimal("7"))
+  end
+
+  it "converts successfully when the API has preloaded only the selected market price" do
+    market_price = PriceValue.new(currency: "CHF", created_at: Time.utc(2026, 1, 3), id: 3, amount: 10, min_quantity: 1)
+    source_price = PriceValue.new(currency: "USD", created_at: Time.utc(2026, 1, 1), id: 1, amount: 20, min_quantity: 1)
+    filtered_scope = double
+    where_chain = double
+    price_scope = double
+    allow(price_scope).to receive(:where).with(no_args).and_return(where_chain)
+    allow(where_chain).to receive(:not).with(amount: nil).and_return(filtered_scope)
+    allow(filtered_scope).to receive(:find_by).with(currency: "USD").and_return(source_price)
+    association = double(loaded?: true, to_a: [market_price], base_prices: price_scope)
+    api_variant = double(id: 23, prices: association, product: double(store: store))
+    resolver = Spree::AutoCurrencyExchange::OriginalPriceResolver.new(store: store, variant: api_variant)
+    allow(resolver).to receive(:quantity_breaks_supported?).and_return(false)
+
+    converted = described_class.new(
+      variant: api_variant,
+      currency: "CHF",
+      store: store,
+      original_price_resolver: resolver,
+      rate_converter: ->(**_options) { BigDecimal("0.8") },
+      price_factory: ->(attributes) { PriceValue.new(**attributes) }
+    ).resolve(fallback_price: PriceValue.new(currency: "CHF", amount: nil))
+
+    expect(converted.amount).to eq(BigDecimal("16.00"))
+    expect(converted.currency).to eq("CHF")
   end
 
   it "preserves a merchant-managed target-currency price" do
@@ -201,6 +230,30 @@ RSpec.describe Spree::AutoCurrencyExchange::OriginalPriceResolver do
 
     expect(selected_price).to equal(prices.first)
     expect(selected_currency).to eq("INR")
+  end
+
+  it "queries the default-currency source when a preloaded association only has market prices" do
+    market_price = PriceRow.new(currency: "CHF", created_at: Time.utc(2026, 1, 3), id: 3, amount: 10)
+    source_price = PriceRow.new(currency: "USD", created_at: Time.utc(2026, 1, 1), id: 1, amount: 20)
+    filtered_scope = double(find_by: source_price)
+    where_chain = double(not: filtered_scope)
+    price_scope = double(where: where_chain)
+    association = double(loaded?: true, to_a: [market_price], base_prices: price_scope)
+    variant = double(id: 23, prices: association)
+    store = double(id: 17, default_currency: "USD", persisted?: true)
+    resolver = described_class.new(store: store, variant: variant)
+    allow(resolver).to receive(:quantity_breaks_supported?).and_return(false)
+    allow(Spree::AutoCurrencyExchange::OriginalCurrency).to receive(:table_exists?).and_return(false)
+    allow(Spree::AutoCurrencyExchange::ConvertedPrice).to receive(:table_exists?).and_return(false)
+
+    expect(price_scope).to receive(:where).with(no_args).and_return(where_chain)
+    expect(where_chain).to receive(:not).with(amount: nil).and_return(filtered_scope)
+    expect(filtered_scope).to receive(:find_by).with(currency: "USD").and_return(source_price)
+
+    selected_price, selected_currency = resolver.call
+
+    expect(selected_price).to equal(source_price)
+    expect(selected_currency).to eq("USD")
   end
 end
 
