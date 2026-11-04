@@ -45,23 +45,29 @@ Copy `.env.example` into the deployment environment or set the variables through
 | `AUTO_CURRENCY_EXCHANGE_ENABLED` | `true` | Enables the automatic daily scheduler. Set `false` to disable automatic scheduling. The manual Rake task remains available. |
 | `AUTO_CURRENCY_EXCHANGE_API_BASE_URL` | `https://api.frankfurter.dev` | Frankfurter API base URL. Can point to a self-hosted compatible endpoint. |
 | `AUTO_CURRENCY_EXCHANGE_REQUEST_TIMEOUT` | `10` | HTTP open and read timeout in seconds. |
-| `AUTO_CURRENCY_EXCHANGE_INTERVAL_HOURS` | `24` | Delay after each attempt before the next scheduled attempt. |
+| `AUTO_CURRENCY_EXCHANGE_UPDATE_TIME` | unset (`03:00 UTC`) | Optional daily time in 24-hour `HH:MM` format. When set, uses the default Spree store's `timezone`; if that timezone is blank, UTC is used. |
 | `AUTO_CURRENCY_EXCHANGE_MARKUPS` | `{}` | JSON object mapping target market currencies to markup fractions. `0.05` means add 5%; `-0.02` means subtract 2%. |
 
 Example:
 
 ```dotenv
 AUTO_CURRENCY_EXCHANGE_MARKUPS={"EUR":0.03,"JPY":0.05}
+AUTO_CURRENCY_EXCHANGE_UPDATE_TIME=04:30
 ```
+
+When `AUTO_CURRENCY_EXCHANGE_UPDATE_TIME` is unset, the update runs at 03:00 UTC regardless of the app or store timezone. If the variable is set, the configured `HH:MM` is interpreted in the default Spree store's timezone. When no default store or no store timezone is available, the configured time is interpreted as UTC. Invalid times or timezone names are logged and prevent automatic scheduling until corrected.
 
 Equivalent Ruby configuration can be placed in the app's Spree initializer:
 
 ```ruby
 Spree::AutoCurrencyExchange.configure do |config|
   config.markups = { "EUR" => 0.03, "JPY" => 0.05 }
+  config.update_time = "04:30"
   config.request_timeout = 15
 end
 ```
+
+Setting `config.update_time` also opts into the default store's timezone, using UTC when the default store has no timezone.
 
 Markups are applied after the provider's base-to-market rate. Currency amounts are rounded to the target currency's minor unit (for example, zero decimal places for JPY).
 
@@ -98,7 +104,9 @@ bin/rails spree:auto_currency_exchange:unlock_manual_prices
 
 ## Scheduling and manual updates
 
-The engine uses Active Job and the application's configured queue adapter. It persists the next run in the extension table, enqueues the first update on application initialization, and schedules the next attempt 24 hours after each attempt. The persisted schedule token makes duplicate jobs from multiple web containers safe: only the job for the current token may run. Use a durable queue backend and keep at least one worker running in production.
+The engine persists the next local run time and timezone in its schedule table. On application initialization it enqueues a delayed `UpdatePricesJob` with `perform_later`, so the application's configured Active Job adapter receives the job. After each attempt, it schedules the next occurrence at the configured daily time. The persisted schedule token makes duplicate jobs from multiple web containers safe: only the job for the current token may run.
+
+Keep a worker running in production and have it consume the `default` queue. For example, run `bin/jobs start` as a continuously running worker service when the app uses Solid Queue. For another adapter, run that adapter's worker process with the `default` queue enabled. The web and worker containers must share the app's queue configuration and database. Do not rely on a web process alone to execute queued work. The Rails `:async` adapter is process-local; use a durable backend for production so scheduled jobs survive restarts.
 
 Run an update immediately from a deployment or operator shell:
 
@@ -140,7 +148,7 @@ If the app's queue adapter is process-local (such as Rails `:async`), the schedu
 
 | Symptom | Check |
 | --- | --- |
-| No scheduled update | Confirm the migration ran, automatic scheduling is enabled, and an Active Job worker is running. Restart the app after migrating. |
+| No scheduled update | Confirm both migrations ran, automatic scheduling is enabled, `AUTO_CURRENCY_EXCHANGE_UPDATE_TIME` is valid, and an Active Job worker is running for the `default` queue. Restart the app after migrating or changing scheduling configuration. |
 | HTTP or missing-rate error | Check API reachability and the store/market currency codes. Frankfurter provides `/v2/currencies` for available codes. Existing prices remain unchanged on failure. |
 | Prices do not change | The target currency may be the base currency, have an active manual override, have an untracked merchant-managed price, or have a manually edited row marked locked. Inspect `Spree::AutoCurrencyExchange::ConvertedPrice` and `PriceOverride`. |
 | Wrong base currency | Check `Spree::Store#default_currency`. The extension does not read a hardcoded currency or Rails locale as its source. |

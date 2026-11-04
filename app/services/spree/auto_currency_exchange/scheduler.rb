@@ -8,10 +8,19 @@ module Spree
       class << self
         def ensure_scheduled!
           schedule = find_or_create_schedule
-          schedule.with_lock do
-            schedule.update!(next_run_at: Time.current) if schedule.next_run_at.nil?
+          timezone = timezone_for_schedule
+          configuration = Spree::AutoCurrencyExchange.configuration
+          run_at = schedule.with_lock do
+            if schedule.next_run_at.nil? || schedule.scheduled_time != configuration.update_time || schedule.time_zone != timezone
+              schedule.update!(
+                scheduled_time: configuration.update_time,
+                time_zone: timezone,
+                next_run_at: next_run_at(timezone: timezone)
+              )
+            end
+            schedule.next_run_at
           end
-          enqueue(schedule.next_run_at)
+          enqueue(run_at)
         end
 
         def run(scheduled_at)
@@ -23,8 +32,16 @@ module Spree
             return false unless same_time?(schedule.next_run_at, token)
 
             Refresh.new.call
-            next_run_at = Time.current + Spree::AutoCurrencyExchange.configuration.interval
-            schedule.update!(last_run_at: Time.current, last_error: nil, next_run_at: next_run_at)
+            update_time = Spree::AutoCurrencyExchange.configuration.update_time
+            timezone = timezone_for_schedule
+            next_run_at = next_run_at(timezone: timezone, update_time: update_time)
+            schedule.update!(
+              scheduled_time: update_time,
+              time_zone: timezone,
+              last_run_at: Time.current,
+              last_error: nil,
+              next_run_at: next_run_at
+            )
           end
 
           enqueue(next_run_at)
@@ -38,11 +55,49 @@ module Spree
           left.present? && right.present? && left.to_i == right.to_i && left.usec == right.usec
         end
 
+        def next_run_at(after: Time.current, timezone: nil, update_time: Spree::AutoCurrencyExchange.configuration.update_time)
+          timezone ||= timezone_for_schedule
+          zone = ActiveSupport::TimeZone[timezone]
+          raise ConfigurationError, "Unknown store timezone #{timezone.inspect}" unless zone
+
+          hour, minute = update_time.split(":").map(&:to_i)
+          local_now = after.in_time_zone(zone)
+          candidate = zone.local(local_now.year, local_now.month, local_now.day, hour, minute)
+          if candidate < local_now
+            tomorrow = local_now.to_date + 1.day
+            candidate = zone.local(tomorrow.year, tomorrow.month, tomorrow.day, hour, minute)
+          end
+
+          candidate.utc
+        end
+
+        def timezone_for_schedule
+          configuration = Spree::AutoCurrencyExchange.configuration
+          store_timezone = if configuration.update_time_configured?
+                            Spree::Store.find_by(default: true)&.timezone
+                          end
+
+          timezone_for(configured: configuration.update_time_configured?, store_timezone: store_timezone)
+        end
+
+        def timezone_for(configured:, store_timezone:)
+          return "UTC" unless configured
+
+          timezone = store_timezone.to_s.presence || "UTC"
+          raise ConfigurationError, "Unknown store timezone #{timezone.inspect}" unless ActiveSupport::TimeZone[timezone]
+
+          timezone
+        end
+
         private
 
         def find_or_create_schedule
+          configuration = Spree::AutoCurrencyExchange.configuration
+          timezone = timezone_for_schedule
           Schedule.find_or_create_by!(name: SCHEDULE_NAME) do |record|
-            record.next_run_at = Time.current
+            record.scheduled_time = configuration.update_time
+            record.time_zone = timezone
+            record.next_run_at = next_run_at(timezone: timezone)
           end
         rescue ActiveRecord::RecordNotUnique
           Schedule.find_by!(name: SCHEDULE_NAME)
@@ -56,11 +111,18 @@ module Spree
           schedule.with_lock do
             return unless same_time?(schedule.next_run_at, token)
 
-            next_run_at = Time.current + Spree::AutoCurrencyExchange.configuration.interval
-            schedule.update!(last_error: error.message.to_s.truncate(2_000), next_run_at: next_run_at)
+            update_time = Spree::AutoCurrencyExchange.configuration.update_time
+            timezone = timezone_for_schedule
+            next_run_at = next_run_at(timezone: timezone, update_time: update_time)
+            schedule.update!(
+              scheduled_time: update_time,
+              time_zone: timezone,
+              last_error: error.message.to_s.truncate(2_000),
+              next_run_at: next_run_at
+            )
           end
           enqueue(next_run_at) if next_run_at
-        rescue ActiveRecord::ActiveRecordError => schedule_error
+        rescue StandardError => schedule_error
           Rails.logger.error("[Spree Auto Currency Exchange] Could not persist scheduler failure: #{schedule_error.message}")
         end
 

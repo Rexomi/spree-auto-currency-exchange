@@ -3,29 +3,44 @@
 module Spree
   module AutoCurrencyExchange
     class Configuration
-      attr_accessor :enabled, :api_base_url, :request_timeout, :markups, :interval
+      attr_accessor :enabled, :api_base_url, :request_timeout, :markups
+      attr_reader :update_time
 
       def self.from_environment
         config = new
         config.enabled = ENV.fetch("AUTO_CURRENCY_EXCHANGE_ENABLED", "true").casecmp("true").zero?
         config.api_base_url = ENV.fetch("AUTO_CURRENCY_EXCHANGE_API_BASE_URL", "https://api.frankfurter.dev")
         config.request_timeout = Integer(ENV.fetch("AUTO_CURRENCY_EXCHANGE_REQUEST_TIMEOUT", "10"))
-        config.interval = Integer(ENV.fetch("AUTO_CURRENCY_EXCHANGE_INTERVAL_HOURS", "24")).hours
         config.markups = parse_markups(ENV.fetch("AUTO_CURRENCY_EXCHANGE_MARKUPS", "{}"))
+        config.update_time = ENV.fetch("AUTO_CURRENCY_EXCHANGE_UPDATE_TIME") if ENV.key?("AUTO_CURRENCY_EXCHANGE_UPDATE_TIME")
         raise ConfigurationError, "AUTO_CURRENCY_EXCHANGE_REQUEST_TIMEOUT must be positive" unless config.request_timeout.positive?
-        raise ConfigurationError, "AUTO_CURRENCY_EXCHANGE_INTERVAL_HOURS must be positive" unless config.interval.positive?
 
         config
       rescue ArgumentError
-        raise ConfigurationError, "Request timeout and update interval must be whole numbers"
+        raise ConfigurationError, "AUTO_CURRENCY_EXCHANGE_REQUEST_TIMEOUT must be a whole number"
       end
 
       def initialize
         @enabled = true
         @api_base_url = "https://api.frankfurter.dev"
         @request_timeout = 10
-        @interval = 24.hours
         @markups = {}
+        @update_time = "03:00"
+        @update_time_configured = false
+      end
+
+      def update_time=(value)
+        time = value.to_s
+        unless time.match?(/\A(?:[01]\d|2[0-3]):[0-5]\d\z/)
+          raise ConfigurationError, "AUTO_CURRENCY_EXCHANGE_UPDATE_TIME must use 24-hour HH:MM format"
+        end
+
+        @update_time = time
+        @update_time_configured = true
+      end
+
+      def update_time_configured?
+        @update_time_configured
       end
 
       def markup_for(currency)

@@ -33,6 +33,9 @@ Gem::Specification.new do |spec|
   else
     spec.add_dependency "spree_core", ">= 5.6", "< 6.1"
   end
+  # Rails relies on the host's zoneinfo database on Unix. This data gem makes
+  # IANA store timezones available on platforms such as Windows as well.
+  spec.add_dependency "tzinfo-data", "~> 1.2020"
 
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "rspec", "~> 3.13"
