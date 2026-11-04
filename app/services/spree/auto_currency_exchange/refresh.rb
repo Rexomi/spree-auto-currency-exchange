@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "money"
+
 module Spree
   module AutoCurrencyExchange
     class Refresh
@@ -174,7 +176,7 @@ module Spree
       end
 
       def currency_precision(currency)
-        currency_info = Money::Currency.find(currency)
+        currency_info = ::Money::Currency.find(currency)
         subunit = currency_info&.subunit_to_unit
         return 2 unless subunit && subunit.positive?
 
