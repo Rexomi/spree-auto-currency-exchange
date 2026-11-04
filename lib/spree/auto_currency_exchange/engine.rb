@@ -6,6 +6,10 @@ module Spree
       engine_name "spree_auto_currency_exchange"
       isolate_namespace Spree::AutoCurrencyExchange
 
+      config.to_prepare do
+        Spree::AutoCurrencyExchange::Integrations.install!
+      end
+
       initializer "spree_auto_currency_exchange.schedule_daily_update" do |app|
         app.config.after_initialize do
           next unless Spree::AutoCurrencyExchange.configuration.enabled

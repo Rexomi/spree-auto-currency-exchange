@@ -7,8 +7,8 @@ Gem::Specification.new do |spec|
   spec.version = Spree::AutoCurrencyExchange::VERSION
   spec.authors = ["Rexomi"]
   spec.email = []
-  spec.summary = "Daily market currency pricing for Spree Commerce"
-  spec.description = "Converts Spree base-currency variant prices into market currencies using daily reference rates."
+  spec.summary = "Dynamic market currency pricing for Spree Commerce"
+  spec.description = "Converts Spree variant prices at runtime using centrally refreshed exchange rates."
   spec.homepage = "https://github.com/Rexomi/spree-auto-currency-exchange"
   spec.license = "AGPL-3.0-or-later"
   spec.required_ruby_version = ">= 3.2"

@@ -11,11 +11,13 @@ module Spree
           timezone = timezone_for_schedule
           configuration = Spree::AutoCurrencyExchange.configuration
           run_at = schedule.with_lock do
-            if schedule.next_run_at.nil? || schedule.scheduled_time != configuration.update_time || schedule.time_zone != timezone
+            bootstrap_rates = initial_rate_refresh_required?
+            if schedule.next_run_at.nil? || schedule.scheduled_time != configuration.update_time ||
+               schedule.time_zone != timezone || (bootstrap_rates && schedule.next_run_at > Time.current)
               schedule.update!(
                 scheduled_time: configuration.update_time,
                 time_zone: timezone,
-                next_run_at: next_run_at(timezone: timezone)
+                next_run_at: bootstrap_rates ? Time.current : next_run_at(timezone: timezone)
               )
             end
             schedule.next_run_at
@@ -87,6 +89,15 @@ module Spree
           raise ConfigurationError, "Unknown store timezone #{timezone.inspect}" unless ActiveSupport::TimeZone[timezone]
 
           timezone
+        end
+
+        def initial_rate_refresh_required?
+          return false unless defined?(Rate) && Rate.table_exists? && Spree::Store.table_exists?
+
+          Spree::Store.find_each.any? do |store|
+            base = store.default_currency.to_s.upcase
+            !Rate.exists?(store_id: store.id, base_currency: base, currency: base)
+          end
         end
 
         private

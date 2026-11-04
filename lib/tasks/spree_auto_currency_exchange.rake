@@ -2,13 +2,10 @@
 
 namespace :spree do
   namespace :auto_currency_exchange do
-    desc "Fetch current market rates and update eligible Spree prices now"
+    desc "Fetch the current exchange-rate table now"
     task update: :environment do
       result = Spree::AutoCurrencyExchange::Refresh.new.call
-      puts "Currency update complete: #{result.stores_processed} stores, #{result.rates_saved} rates, " \
-           "#{result.prices_created} prices created, #{result.prices_updated} prices updated, " \
-           "#{result.overrides_applied} overrides, #{result.manual_prices_preserved} manual prices preserved, " \
-           "#{result.locked_prices_preserved} edited prices protected."
+      puts "Exchange-rate update complete: #{result.stores_processed} stores, #{result.rates_saved} rates saved."
     end
 
     desc "Unlock prices edited outside the extension so the next run manages them again"

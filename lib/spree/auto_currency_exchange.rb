@@ -13,6 +13,7 @@ require "uri"
 require_relative "auto_currency_exchange/version"
 require_relative "auto_currency_exchange/configuration"
 require_relative "auto_currency_exchange/errors"
+require_relative "auto_currency_exchange/integrations"
 require_relative "auto_currency_exchange/engine"
 
 module Spree

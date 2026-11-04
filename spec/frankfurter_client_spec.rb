@@ -46,6 +46,24 @@ RSpec.describe Spree::AutoCurrencyExchange::FrankfurterClient do
     end.to raise_error(Spree::AutoCurrencyExchange::MissingRateError, /JPY/)
   end
 
+  it "fetches the full supported quote set without a quotes filter" do
+    response.body = [
+      { date: "2026-11-04", base: "USD", quote: "EUR", rate: 0.92 },
+      { date: "2026-11-04", base: "USD", quote: "INR", rate: 83.25 }
+    ].to_json
+    connection = double
+    expect(connection).to receive(:get).with(
+      "/v2/rates?base=USD",
+      "Accept" => "application/json",
+      "User-Agent" => "spree-auto-currency-exchange/#{Spree::AutoCurrencyExchange::VERSION}"
+    ).and_return(response)
+    allow(http).to receive(:start).and_yield(connection)
+
+    result = described_class.new(configuration: configuration, http: http).fetch_all(base_currency: "USD")
+
+    expect(result.rates).to eq("EUR" => BigDecimal("0.92"), "INR" => BigDecimal("83.25"))
+  end
+
   it "does not accept failed provider responses" do
     response.code = "503"
     client = described_class.new(configuration: configuration, http: http)

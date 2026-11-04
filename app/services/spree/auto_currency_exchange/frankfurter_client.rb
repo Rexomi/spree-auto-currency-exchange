@@ -16,6 +16,19 @@ module Spree
         quotes = Array(currencies).map { |currency| normalize_currency(currency) }.uniq - [base]
         return RateSet.new(base_currency: base, rates: {}, observed_on: Date.current, fetched_at: Time.current) if quotes.empty?
 
+        fetch_rates(base, quotes)
+      end
+
+      # Fetches every quote supported by Frankfurter. Keeping a base-currency
+      # snapshot for all supported currencies lets the pricing layer convert
+      # product prices whose original currency is not itself a market currency.
+      def fetch_all(base_currency:)
+        fetch_rates(normalize_currency(base_currency), nil)
+      end
+
+      private
+
+      def fetch_rates(base, quotes)
         uri = rates_uri(base, quotes)
         response = @http.start(
           uri.host,
@@ -39,8 +52,6 @@ module Spree
         raise ProviderError, "Unable to fetch exchange rates from Frankfurter: #{error.message}"
       end
 
-      private
-
       def rates_uri(base, quotes)
         base_uri = URI.parse(@configuration.api_base_url)
         raise ConfigurationError, "Exchange-rate API URL must use HTTP or HTTPS" unless %w[http https].include?(base_uri.scheme)
@@ -48,7 +59,9 @@ module Spree
 
         prefix = base_uri.path.to_s.sub(%r{/+\z}, "")
         base_uri.path = "#{prefix}/v2/rates"
-        base_uri.query = URI.encode_www_form(base: base, quotes: quotes.join(","))
+        params = { base: base }
+        params[:quotes] = quotes.join(",") if quotes
+        base_uri.query = URI.encode_www_form(params)
         base_uri.fragment = nil
         base_uri
       rescue URI::InvalidURIError => error
@@ -66,7 +79,7 @@ module Spree
 
           base = normalize_currency(row["base"])
           quote = normalize_currency(row["quote"])
-          next unless base == expected_base && expected_quotes.include?(quote)
+          next unless base == expected_base && quote != expected_base && (expected_quotes.nil? || expected_quotes.include?(quote))
 
           rate = BigDecimal(row.fetch("rate").to_s)
           raise ProviderError, "Frankfurter returned an invalid rate for #{quote}" unless rate.finite? && rate.positive?
@@ -75,8 +88,9 @@ module Spree
           observations << Date.iso8601(row.fetch("date").to_s)
         end
 
-        missing = expected_quotes - rates.keys
+        missing = expected_quotes ? expected_quotes - rates.keys : []
         raise MissingRateError, "Frankfurter has no rate for #{missing.join(', ')} from #{expected_base}" if missing.any?
+        raise ProviderError, "Frankfurter returned no exchange rates for #{expected_base}" if rates.empty?
 
         RateSet.new(base_currency: expected_base, rates: rates, observed_on: observations.min, fetched_at: Time.current)
       rescue KeyError, ArgumentError, TypeError => error
