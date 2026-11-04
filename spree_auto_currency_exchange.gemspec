@@ -1,0 +1,40 @@
+# frozen_string_literal: true
+
+require_relative "lib/spree/auto_currency_exchange/version"
+
+Gem::Specification.new do |spec|
+  spec.name = "spree_auto_currency_exchange"
+  spec.version = Spree::AutoCurrencyExchange::VERSION
+  spec.authors = ["Rexomi"]
+  spec.email = []
+  spec.summary = "Daily market currency pricing for Spree Commerce"
+  spec.description = "Converts Spree base-currency variant prices into market currencies using daily reference rates."
+  spec.homepage = "https://github.com/Rexomi/spree-auto-currency-exchange"
+  spec.license = "AGPL-3.0-or-later"
+  spec.required_ruby_version = ">= 3.2"
+  spec.metadata = {
+    "bug_tracker_uri" => "https://github.com/Rexomi/spree-auto-currency-exchange/issues",
+    "changelog_uri" => "https://github.com/Rexomi/spree-auto-currency-exchange/releases",
+    "documentation_uri" => "https://github.com/Rexomi/spree-auto-currency-exchange#readme",
+    "source_code_uri" => "https://github.com/Rexomi/spree-auto-currency-exchange"
+  }
+
+  spec.files = Dir["{app,config,db,lib,spec}/**/*", "README.md", "LICENSE", "Rakefile", ".env.example"]
+  spec.require_paths = ["lib"]
+
+  if ENV["RAILS_VERSION"]
+    spec.add_dependency "rails", ENV["RAILS_VERSION"]
+  else
+    spec.add_dependency "rails", ">= 7.2", "< 8.2"
+  end
+
+  if ENV["SPREE_CORE_VERSION"]
+    spec.add_dependency "spree_core", ENV["SPREE_CORE_VERSION"]
+  else
+    spec.add_dependency "spree_core", ">= 5.6", "< 6.1"
+  end
+
+  spec.add_development_dependency "rake", "~> 13.0"
+  spec.add_development_dependency "rspec", "~> 3.13"
+  spec.add_development_dependency "sqlite3", ">= 1.6", "< 3"
+end
