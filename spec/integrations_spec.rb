@@ -27,6 +27,45 @@ RSpec.describe Spree::AutoCurrencyExchange::Integrations do
     expect(instance.price_in("eur")).to equal(converted)
   end
 
+  it "uses the dynamic price resolver for the Store API price_for path" do
+    fallback = double("empty price", amount: nil)
+    converted = double("dynamic price", amount: BigDecimal("12.00"))
+    variant_class = Class.new do
+      define_method(:initialize) { |product, base_price| @product, @base_price = product, base_price }
+      attr_reader :product
+      define_method(:price_for) { |_context| @base_price }
+    end
+    variant_class.prepend(described_class::VariantPricing)
+    instance = variant_class.new(variant.product, fallback)
+    context = double(currency: "EUR", store: store)
+
+    dynamic = instance_double(Spree::AutoCurrencyExchange::DynamicPrice)
+    expect(Spree::AutoCurrencyExchange::DynamicPrice).to receive(:new)
+      .with(variant: instance, currency: "EUR", store: store).and_return(dynamic)
+    expect(dynamic).to receive(:resolve).with(fallback_price: fallback).and_return(converted)
+
+    expect(instance.price_for(context)).to equal(converted)
+  end
+
+  it "preserves an existing price_for result when it already has an amount" do
+    merchant_price = double("merchant price", amount: BigDecimal("10.00"))
+    variant_class = Class.new do
+      define_method(:initialize) { |product, base_price| @product, @base_price = product, base_price }
+      attr_reader :product
+      define_method(:price_for) { |_context| @base_price }
+    end
+    variant_class.prepend(described_class::VariantPricing)
+    instance = variant_class.new(variant.product, merchant_price)
+    context = double(currency: "EUR", store: store)
+
+    dynamic = instance_double(Spree::AutoCurrencyExchange::DynamicPrice)
+    expect(Spree::AutoCurrencyExchange::DynamicPrice).to receive(:new)
+      .with(variant: instance, currency: "EUR", store: store).and_return(dynamic)
+    expect(dynamic).to receive(:resolve).with(fallback_price: merchant_price).and_return(merchant_price)
+
+    expect(instance.price_for(context)).to equal(merchant_price)
+  end
+
   it "passes dynamic prices through Spree's cart pricing resolver" do
     context = double(variant: variant, currency: "EUR", store: store)
     fallback = double("base fallback")

@@ -63,6 +63,32 @@ module Spree
 
           dynamic_price || existing_price
         end
+
+        # Spree's Store API serializers resolve the displayed price through
+        # Variant#price_for. In Spree 6, that path moved from
+        # Spree::Pricing::Resolver to the configured PricingProvider, so a
+        # resolver-only prepend does not cover API product pages. Wrap the
+        # public entry point as well; explicit price-list and merchant prices
+        # remain intact because DynamicPrice preserves populated fallbacks.
+        def price_for(context_or_options)
+          existing_price = super
+          dynamic_price = DynamicPrice.new(
+            variant: self,
+            currency: auto_currency_exchange_context_value(context_or_options, :currency),
+            store: auto_currency_exchange_context_value(context_or_options, :store)
+          ).resolve(fallback_price: existing_price)
+
+          dynamic_price || existing_price
+        end
+
+        private
+
+        def auto_currency_exchange_context_value(context_or_options, key)
+          return context_or_options.public_send(key) if context_or_options.respond_to?(key)
+          return unless context_or_options.respond_to?(:[])
+
+          context_or_options[key] || context_or_options[key.to_s]
+        end
       end
 
       module PricingResolver
@@ -228,7 +254,9 @@ module Spree
         Spree::Store.include(StoreCallbacks) unless Spree::Store < StoreCallbacks
         Spree::Price.include(PriceSnapshotAttributes) unless Spree::Price < PriceSnapshotAttributes
         Spree::Variant.prepend(VariantPricing) unless Spree::Variant.ancestors.include?(VariantPricing)
-        Spree::Pricing::Resolver.prepend(PricingResolver) unless Spree::Pricing::Resolver.ancestors.include?(PricingResolver)
+        if defined?(Spree::Pricing::Resolver) && !Spree::Pricing::Resolver.ancestors.include?(PricingResolver)
+          Spree::Pricing::Resolver.prepend(PricingResolver)
+        end
         Spree::LineItem.prepend(LineItemPricing) unless Spree::LineItem.ancestors.include?(LineItemPricing)
         Spree::Order.prepend(OrderCurrencyPricing) unless Spree::Order.ancestors.include?(OrderCurrencyPricing)
 
